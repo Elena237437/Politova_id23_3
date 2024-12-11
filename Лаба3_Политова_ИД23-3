@@ -1,0 +1,176 @@
+import tkinter as tk
+import math
+
+# Инициализация окна
+root = tk.Tk()
+root.title("Solar System Simulation")
+root.geometry("900x900")
+
+canvas = tk.Canvas(root, bg='black')
+canvas.pack(fill=tk.BOTH, expand=True)
+
+center_x, center_y = 450, 450
+planet_objects = []
+
+# Солнце
+sun = canvas.create_oval(center_x - 30, center_y - 30, center_x + 30, center_y + 30, fill='yellow')
+
+# Планеты
+planets = [
+    {"radius": 8, "distance": 50, "speed": 0.04},
+    {"radius": 14, "distance": 100, "speed": 0.03},
+    {"radius": 16, "distance": 150, "speed": 0.02},
+    {"radius": 12, "distance": 200, "speed": 0.015},
+    {"radius": 30, "distance": 300, "speed": 0.01}
+]
+
+def color_by_size(radius):
+    blue_intensity = int(min(radius * 10, 255))
+    return f'#0000{blue_intensity:02x}'
+
+# Орбиты планет
+for planet in planets:
+    canvas.create_oval(
+        center_x - planet["distance"], center_y - planet["distance"],
+        center_x + planet["distance"], center_y + planet["distance"],
+        outline="white", dash=(3, 2)
+    )
+
+# Создание планет
+for planet in planets:
+    planet_obj = canvas.create_oval(
+        center_x + planet["distance"] - planet["radius"],
+        center_y - planet["radius"],
+        center_x + planet["distance"] + planet["radius"],
+        center_y + planet["radius"],
+        fill=color_by_size(planet["radius"])
+    )
+    planet_objects.append({
+        "object": planet_obj,
+        "distance": planet["distance"],
+        "radius": planet["radius"],
+        "speed": planet["speed"],
+        "angle": 0
+    })
+
+# Астероиды
+asteroids = []
+selected_size = tk.IntVar(value=5)
+selected_speed = tk.DoubleVar(value=1.0)
+asteroid_direction = None
+paused = False  # Флаг паузы
+
+def create_asteroid(event):
+    global asteroid_direction
+    asteroid_direction = (event.x, event.y)
+
+def set_asteroid_params(event):
+    global asteroid_direction
+    if asteroid_direction:
+        x1, y1 = asteroid_direction
+        x2, y2 = event.x, event.y
+        dx, dy = x2 - x1, y2 - y1
+        distance = math.sqrt(dx**2 + dy**2)
+        direction = (dx / distance, dy / distance)
+
+        asteroid_obj = canvas.create_oval(
+            x1 - selected_size.get(), y1 - selected_size.get(),
+            x1 + selected_size.get(), y1 + selected_size.get(),
+            fill='white'
+        )
+        asteroids.append({
+            "object": asteroid_obj,
+            "x": x1,
+            "y": y1,
+            "vx": direction[0] * selected_speed.get(),
+            "vy": direction[1] * selected_speed.get(),
+            "size": selected_size.get()
+        })
+        asteroid_direction = None
+
+def update_simulation():
+    global asteroids, paused
+
+    if paused:  # Если пауза активна, останавливаем обновление
+        root.after(30, update_simulation)
+        return
+
+    # Обновление астероидов
+    for asteroid in asteroids[:]:
+        asteroid["x"] += asteroid["vx"]
+        asteroid["y"] += asteroid["vy"]
+
+        # Обновляем позицию на Canvas
+        canvas.coords(
+            asteroid["object"],
+            asteroid["x"] - asteroid["size"],
+            asteroid["y"] - asteroid["size"],
+            asteroid["x"] + asteroid["size"],
+            asteroid["y"] + asteroid["size"]
+        )
+
+        # Проверка на столкновение с Солнцем
+        if math.sqrt((asteroid["x"] - center_x)**2 + (asteroid["y"] - center_y)**2) <= 30:
+            canvas.delete(asteroid["object"])
+            asteroids.remove(asteroid)
+            continue
+
+        # Проверка на столкновение с планетами
+        for planet in planet_objects:
+            planet_x = center_x + planet["distance"] * math.cos(planet["angle"])
+            planet_y = center_y + planet["distance"] * math.sin(planet["angle"])
+            distance_to_planet = math.sqrt((asteroid["x"] - planet_x)**2 + (asteroid["y"] - planet_y)**2)
+
+            if distance_to_planet <= planet["radius"]:  # Если астероид касается планеты
+                # Увеличиваем радиус планеты
+                planet["radius"] += asteroid["size"] // 2  # Увеличиваем размер планеты
+                canvas.itemconfig(planet["object"], fill=color_by_size(planet["radius"]))
+                canvas.coords(
+                    planet["object"],
+                    planet_x - planet["radius"], planet_y - planet["radius"],
+                    planet_x + planet["radius"], planet_y + planet["radius"]
+                )
+
+                # Удаляем астероид
+                canvas.delete(asteroid["object"])
+                asteroids.remove(asteroid)
+                break
+
+    # Обновление планет
+    for planet in planet_objects:
+        planet["angle"] += planet["speed"]
+        x = center_x + planet["distance"] * math.cos(planet["angle"])
+        y = center_y + planet["distance"] * math.sin(planet["angle"])
+        canvas.coords(
+            planet["object"],
+            x - planet["radius"], y - planet["radius"],
+            x + planet["radius"], y + planet["radius"]
+        )
+
+    root.after(30, update_simulation)
+
+# Функция для управления паузой
+def toggle_pause():
+    global paused
+    paused = not paused  # Переключение состояния
+    pause_button.config(text="Возобновить" if paused else "Пауза")  # Изменение текста кнопки
+
+
+control_frame = tk.Frame(root)
+control_frame.pack(side=tk.LEFT, fill=tk.Y)
+
+tk.Label(control_frame, text="Размер астероида").pack()
+tk.Spinbox(control_frame, from_=1, to=20, textvariable=selected_size).pack()
+
+tk.Label(control_frame, text="Скорость астероида").pack()
+tk.Spinbox(control_frame, from_=0.1, to=5.0, increment=0.1, textvariable=selected_speed).pack()
+
+# Кнопка паузы
+pause_button = tk.Button(control_frame, text="Пауза", command=toggle_pause)
+pause_button.pack(pady=10)
+
+canvas.bind("<Button-1>", create_asteroid)
+canvas.bind("<ButtonRelease-1>", set_asteroid_params)
+
+update_simulation()
+root.mainloop()
